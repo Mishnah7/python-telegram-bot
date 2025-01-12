@@ -5,3 +5,14 @@
 .venv/
 venv/
 ENV/
+
+# IDE
+.idea/
+.idea/*
+
+# Cache
+__pycache__/
+*.pyc
+
+# Database
+*.db
