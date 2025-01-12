@@ -218,12 +218,18 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         conn.rollback()
 
                 await query.edit_message_text(
-                    f"✅ Correct! Well done!\n\nThe answer is: {correct_answer}\n\nWould you like another question? Use /quiz",
+                    f"✅ Correct! Well done!\n\n"
+                    f"Question: {quiz_data['question']}\n"
+                    f"The answer is: {correct_answer}\n\n"
+                    f"Would you like another question? Use /quiz",
                     reply_markup=None
                 )
             else:
                 await query.edit_message_text(
-                    f"❌ Sorry, that's incorrect.\n\nThe correct answer is: {correct_answer}\n\nTry another question with /quiz",
+                    f"❌ Sorry, that's incorrect.\n\n"
+                    f"Question: {quiz_data['question']}\n"
+                    f"The correct answer is: {correct_answer}\n\n"
+                    f"Try another question with /quiz",
                     reply_markup=None
                 )
             
