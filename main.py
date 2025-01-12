@@ -49,28 +49,6 @@ def setup_db():
     except sqlite3.Error as e:
         logging.error(f"Database error during setup: {e}")
 
-# Load data from file
-def load_data(file_path):
-    data = {}
-    try:
-        with open(file_path, 'r') as file:
-            for line in file:
-                line = line.strip()
-                if line:  # Check if the line is not empty
-                    try:
-                        key, value = line.split(';')
-                        data[key] = value
-                    except ValueError:
-                        logging.error(f"Error: Line '{line}' in {file_path} is not in the expected format.")
-    except FileNotFoundError:
-        logging.error(f"Error: The file {file_path} was not found.")
-    except Exception as e:
-        logging.error(f"An error occurred while reading {file_path}: {e}")
-    return data
-
-COUNTRIES_CAPITALS = load_data('countries_capitals.txt')
-RIVERS = load_data('rivers.txt')
-
 # Helper functions
 def get_user_language(user_id):
     with sqlite3.connect(DB_NAME) as conn:
