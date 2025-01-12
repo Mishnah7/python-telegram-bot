@@ -147,7 +147,8 @@ async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         context.user_data['quiz'] = {
             'question': formatted_question['question'],
             'answer': formatted_question['answer'],
-            'quiz_type': formatted_question['quiz_type']
+            'quiz_type': formatted_question['quiz_type'],
+            'options': formatted_question['options']  # Store options for button verification
         }
 
         # Store in database
@@ -170,56 +171,78 @@ async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except sqlite3.Error as e:
             logging.error(f"Database error in quiz (insert): {e}")
 
-        # Send question with options
-        options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(formatted_question['options'])])
-        question_text = f"{formatted_question['question']}\n\n{options_text}\n\nDifficulty: {formatted_question['difficulty']}"
+        # Create inline keyboard with options
+        keyboard = []
+        for i, option in enumerate(formatted_question['options']):
+            keyboard.append([InlineKeyboardButton(option, callback_data=f"answer_{i}")])
         
-        await update.message.reply_text(question_text)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send question with options as buttons
+        question_text = f"{formatted_question['question']}\n\nDifficulty: {formatted_question['difficulty']}"
+        await update.message.reply_text(question_text, reply_markup=reply_markup)
     except Exception as e:
         await update.message.reply_text("An unexpected error occurred. Please try again later.")
         logging.error(f"Error in quiz function: {e}")
 
-async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user = query.from_user
     try:
         ensure_user_in_db(user)
-        user_answer = update.message.text
-        quiz = context.user_data.get('quiz')
-        if not quiz:
-            await update.message.reply_text(translate_text("No question is currently active. Start a new quiz with /quiz.", get_user_language(user.id)))
+        await query.answer()  # Acknowledge the button press
+
+        if query.data.startswith('answer_'):
+            quiz_data = context.user_data.get('quiz')
+            if not quiz_data:
+                await query.edit_message_text("No active quiz found. Start a new quiz with /quiz")
+                return
+
+            # Get the selected answer index and the corresponding option
+            selected_index = int(query.data.split('_')[1])
+            selected_answer = quiz_data['options'][selected_index]
+            correct_answer = quiz_data['answer']
+
+            if selected_answer.lower() == correct_answer.lower():
+                # Update score atomically
+                with sqlite3.connect(DB_NAME) as conn:
+                    c = conn.cursor()
+                    try:
+                        c.execute("BEGIN")
+                        c.execute("UPDATE users SET score = score + 1 WHERE id=?", (user.id,))
+                        c.execute("INSERT INTO score_history (user_id, score, timestamp) VALUES (?, ?, ?)", 
+                                (user.id, 1, datetime.now()))
+                        conn.commit()
+                    except sqlite3.Error as e:
+                        logging.error(f"Database error in button (score update): {e}")
+                        conn.rollback()
+
+                await query.edit_message_text(
+                    f"✅ Correct! Well done!\n\nThe answer is: {correct_answer}\n\nWould you like another question? Use /quiz",
+                    reply_markup=None
+                )
+            else:
+                await query.edit_message_text(
+                    f"❌ Sorry, that's incorrect.\n\nThe correct answer is: {correct_answer}\n\nTry another question with /quiz",
+                    reply_markup=None
+                )
+            
+            # Clear the quiz data
+            context.user_data.pop('quiz', None)
             return
-
-        correct_answer = quiz['answer']
-        # Check if the answer is a number (1-4) and convert it to the actual answer
-        try:
-            if user_answer.isdigit() and 1 <= int(user_answer) <= 4:
-                options = context.user_data['quiz'].get('options', [])
-                if options:
-                    user_answer = options[int(user_answer) - 1]
-        except (ValueError, IndexError):
-            pass
-
-        if user_answer.lower() == correct_answer.lower():
-            await update.message.reply_text(translate_text("Correct! Well done! Would you like another question? (/quiz)", get_user_language(user.id)))
-            # Update score atomically
+        
+        # Handle language setting buttons
+        elif query.data.startswith('set_lang_'):
+            action, lang_code = query.data.split('_', 2)[1:]
             with sqlite3.connect(DB_NAME) as conn:
                 c = conn.cursor()
-                try:
-                    c.execute("BEGIN")  # Start a transaction
-                    # Update the user's score
-                    c.execute("UPDATE users SET score = score + 1 WHERE id=?", (user.id,))
-                    # Insert into score_history with timestamp
-                    c.execute("INSERT INTO score_history (user_id, score, timestamp) VALUES (?, ?, ?)", 
-                            (user.id, 1, datetime.now()))
-                    conn.commit()  # Commit the transaction
-                except sqlite3.OperationalError as e:
-                    logging.error(f"Database error in check_answer (score update): {e}")
-                    conn.rollback()  # Rollback in case of error
-        else:
-            await update.message.reply_text(translate_text(f"Sorry, that's incorrect. The answer is {correct_answer}. Try another question? (/quiz)", get_user_language(user.id)))
-    except sqlite3.OperationalError as e:
-        await update.message.reply_text("An error occurred with the database. Please try again later.")
-        logging.error(f"Database error in check_answer: {e}")
+                c.execute("UPDATE users SET language = ? WHERE id = ?", (lang_code, query.from_user.id))
+                conn.commit()
+            await query.edit_message_text(text=translate_text(f"Language set to {LANGUAGES[lang_code]}", lang_code))
+
+    except Exception as e:
+        await query.edit_message_text("An error occurred. Please try again.")
+        logging.error(f"Error in button handler: {e}")
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -342,42 +365,6 @@ async def all_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         await update.message.reply_text("An unexpected error occurred. Please try again later.")
         logging.error(f"Error in all_users function: {e}")
-
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global query
-    user = update.effective_user
-    try:
-        ensure_user_in_db(user)
-        query = update.callback_query
-        await query.answer()
-        action, lang_code = query.data.split('_')
-        if action == 'set':
-            with sqlite3.connect(DB_NAME) as conn:
-                c = conn.cursor()
-                c.execute("UPDATE users SET language = ? WHERE id = ?", (lang_code, query.from_user.id))
-                conn.commit()
-            await query.edit_message_text(text=translate_text(f"Language set to {LANGUAGES[lang_code]}", lang_code))
-        else:
-            await query.edit_message_text(text=translate_text("Invalid action.", get_user_language(query.from_user.id)))
-    except sqlite3.OperationalError as e:
-        await query.edit_message_text(text="An error occurred with the database. Please try again later.")
-        logging.error(f"Database error in button: {e}")
-
-async def schedule_quiz(context: ContextTypes.DEFAULT_TYPE) -> None:
-    job = context.job
-    await context.bot.send_message(chat_id=job.chat_id, text="Here's your scheduled quiz question!")
-
-async def set_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    try:
-        ensure_user_in_db(user)
-        chat_id = update.effective_chat.id
-        context.job_queue.run_daily(schedule_quiz, time=datetime.now().replace(hour=12, minute=0, second=0, microsecond=0),
-                                    chat_id=chat_id, name=str(chat_id))
-        await update.message.reply_text("Quiz scheduled for 12:00 daily!")
-    except sqlite3.OperationalError as e:
-        await update.message.reply_text("An error occurred with the database. Please try again later.")
-        logging.error(f"Database error in set_schedule: {e}")
 
 async def show_commands(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -540,11 +527,9 @@ async def main() -> None:
     application.add_handler(CommandHandler("set_language", set_language))
     application.add_handler(CommandHandler("my_quizzes", my_quizzes))
     application.add_handler(CommandHandler("all_users", all_users))
-    application.add_handler(CommandHandler("schedule_quiz", set_schedule))
     application.add_handler(CommandHandler("score_history", score_history))
     application.add_handler(CommandHandler("my_score", my_score))
     application.add_handler(CommandHandler("reset", reset))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_answer))
     application.add_handler(CallbackQueryHandler(button))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^/$'), show_commands))
 
@@ -560,7 +545,6 @@ async def main() -> None:
         BotCommand("user_info", "Check your information"),
         BotCommand("set_language", "Change bot language"),
         BotCommand("my_quizzes", "See your quiz history"),
-        BotCommand("schedule_quiz", "Schedule daily quizzes"),
         BotCommand("all_users", "List all users (admin only)"),
         BotCommand("score_history", "View your score history"),
         BotCommand("my_score", "View your current score"),
