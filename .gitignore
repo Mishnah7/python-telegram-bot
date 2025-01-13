@@ -16,3 +16,5 @@ __pycache__/
 
 # Database
 *.db
+
+quiz_bot.db
