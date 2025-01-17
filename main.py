@@ -37,6 +37,13 @@ CATEGORIES = {
     'entertainment': 'Entertainment'
 }
 
+# Add difficulties constant
+DIFFICULTIES = {
+    'easy': 'Easy',
+    'medium': 'Medium',
+    'hard': 'Hard'
+}
+
 # Function to adapt datetime objects for SQLite
 def adapt_datetime(dt):
     return dt.isoformat()  # Convert datetime to ISO format string
@@ -138,10 +145,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("An unexpected error occurred. Please try again later.")
         logging.error(f"Error in help_command function: {e}")
 
-async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def select_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     ensure_user_in_db(user)
     
+    # Create keyboard with difficulties
+    keyboard = []
+    for diff_id, diff_name in DIFFICULTIES.items():
+        keyboard.append([InlineKeyboardButton(diff_name, callback_data=f"difficulty_{diff_id}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Please select difficulty level:", reply_markup=reply_markup)
+
+async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE, edit_message=None) -> None:
     # Create keyboard with categories
     keyboard = []
     row = []
@@ -154,11 +170,30 @@ async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         keyboard.append(row)
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Please select a category:", reply_markup=reply_markup)
+    if edit_message:
+        await edit_message.edit_text("Please select a category:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("Please select a category:", reply_markup=reply_markup)
+
+def create_quiz_keyboard(options, show_controls=True):
+    keyboard = []
+    # Add answer options
+    for i, option in enumerate(options):
+        keyboard.append([InlineKeyboardButton(option, callback_data=f"answer_{i}")])
+    
+    if show_controls:
+        # Add control buttons in a row
+        control_row = [
+            InlineKeyboardButton("Change Category", callback_data="change_category"),
+            InlineKeyboardButton("Change Difficulty", callback_data="change_difficulty")
+        ]
+        keyboard.append(control_row)
+    
+    return InlineKeyboardMarkup(keyboard)
 
 async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Start by showing category selection
-    await select_category(update, context)
+    # Start by showing difficulty selection
+    await select_difficulty(update, context)
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -167,12 +202,21 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ensure_user_in_db(user)
         await query.answer()  # Acknowledge the button press
 
-        if query.data.startswith('category_'):
+        if query.data.startswith('difficulty_'):
+            # Store selected difficulty in context
+            difficulty = query.data.split('_')[1]
+            context.user_data['difficulty'] = difficulty
+            # Move to category selection
+            await select_category(update, context, edit_message=query.message)
+            return
+
+        elif query.data.startswith('category_'):
             # Handle category selection
             category = query.data.split('_')[1]
+            difficulty = context.user_data.get('difficulty', 'medium')  # Default to medium if not set
             
-            # Fetch question from API with selected category
-            question_data = await quiz_api.get_question(category=category)
+            # Fetch question from API with selected category and difficulty
+            question_data = await quiz_api.get_question(category=category, difficulty=difficulty)
             if not question_data:
                 await query.edit_message_text("Sorry, I couldn't fetch a question right now. Please try again later.")
                 return
@@ -185,7 +229,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 'answer': formatted_question['answer'],
                 'quiz_type': formatted_question['quiz_type'],
                 'options': formatted_question['options'],
-                'category': category  # Store selected category
+                'category': category,
+                'difficulty': difficulty
             }
 
             # Store in database
@@ -195,30 +240,45 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     c.execute("""
                         INSERT INTO quizzes (
                             user_id, question, answer, quiz_type, 
-                            created_at, status, category
-                        ) VALUES (?, ?, ?, ?, ?, 'active', ?)
+                            created_at, status, category, difficulty
+                        ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
                     """, (
                         user.id, 
                         formatted_question['question'],
                         formatted_question['answer'],
                         formatted_question['quiz_type'],
                         datetime.now(),
-                        category
+                        category,
+                        difficulty
                     ))
                     conn.commit()
             except sqlite3.Error as e:
                 logging.error(f"Database error in quiz (insert): {e}")
 
-            # Create inline keyboard with options
-            keyboard = []
-            for i, option in enumerate(formatted_question['options']):
-                keyboard.append([InlineKeyboardButton(option, callback_data=f"answer_{i}")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Create keyboard with options and control buttons
+            reply_markup = create_quiz_keyboard(formatted_question['options'])
             
             # Send question with options as buttons
-            question_text = f"Category: {CATEGORIES[category]}\n\n{formatted_question['question']}\n\nDifficulty: {formatted_question['difficulty']}"
+            question_text = (
+                f"Category: {CATEGORIES[category]}\n"
+                f"Difficulty: {DIFFICULTIES[difficulty]}\n\n"
+                f"{formatted_question['question']}"
+            )
             await query.edit_message_text(question_text, reply_markup=reply_markup)
+            return
+
+        elif query.data == 'change_category':
+            # Show category selection
+            await select_category(update, context, edit_message=query.message)
+            return
+
+        elif query.data == 'change_difficulty':
+            # Show difficulty selection
+            keyboard = []
+            for diff_id, diff_name in DIFFICULTIES.items():
+                keyboard.append([InlineKeyboardButton(diff_name, callback_data=f"difficulty_{diff_id}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("Select new difficulty level:", reply_markup=reply_markup)
             return
 
         elif query.data.startswith('answer_'):
@@ -231,7 +291,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             selected_index = int(query.data.split('_')[1])
             selected_answer = quiz_data['options'][selected_index]
             correct_answer = quiz_data['answer']
-            category = quiz_data.get('category', 'general')  # Default to general if no category
+            category = quiz_data.get('category', 'general')
+            difficulty = quiz_data.get('difficulty', 'medium')
 
             if selected_answer.lower() == correct_answer.lower():
                 # Update score atomically
@@ -263,25 +324,44 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     reply_markup=None
                 )
             
-            # Clear the quiz data
+            # Clear the quiz data but keep difficulty and category
+            difficulty = quiz_data.get('difficulty', 'medium')
+            category = quiz_data.get('category', 'general')
             context.user_data.pop('quiz', None)
+            context.user_data['difficulty'] = difficulty
+            context.user_data['category'] = category
 
-            # Send a new question automatically with the same category
+            # Send a new question automatically with the same category and difficulty
             await asyncio.sleep(2)  # Wait 2 seconds before sending new question
             
-            # Create keyboard with categories for next question
-            keyboard = []
-            row = []
-            for category_id, category_name in CATEGORIES.items():
-                if len(row) == 2:
-                    keyboard.append(row)
-                    row = []
-                row.append(InlineKeyboardButton(category_name, callback_data=f"category_{category_id}"))
-            if row:
-                keyboard.append(row)
+            # Fetch new question
+            question_data = await quiz_api.get_question(category=category, difficulty=difficulty)
+            if not question_data:
+                await query.message.reply_text("Sorry, I couldn't fetch a question. Please try /quiz to start again.")
+                return
+
+            formatted_question = format_question(question_data)
             
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text("Choose a category for the next question:", reply_markup=reply_markup)
+            # Store new question data
+            context.user_data['quiz'] = {
+                'question': formatted_question['question'],
+                'answer': formatted_question['answer'],
+                'quiz_type': formatted_question['quiz_type'],
+                'options': formatted_question['options'],
+                'category': category,
+                'difficulty': difficulty
+            }
+
+            # Create keyboard with options and control buttons
+            reply_markup = create_quiz_keyboard(formatted_question['options'])
+            
+            # Send new question
+            question_text = (
+                f"Category: {CATEGORIES[category]}\n"
+                f"Difficulty: {DIFFICULTIES[difficulty]}\n\n"
+                f"{formatted_question['question']}"
+            )
+            await query.message.reply_text(question_text, reply_markup=reply_markup)
             return
         
         # Handle language setting buttons

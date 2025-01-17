@@ -41,7 +41,7 @@ class QuizAPI:
         if self.session is None:
             self.session = aiohttp.ClientSession()
 
-    async def get_question(self, category: str = 'general') -> Optional[Dict]:
+    async def get_question(self, category: str = 'general', difficulty: str = 'medium') -> Optional[Dict]:
         """Fetch a single quiz question from the Open Trivia Database."""
         try:
             await self._ensure_session()
@@ -53,6 +53,10 @@ class QuizAPI:
             # Add category if specified
             if category in self.category_map:
                 params['category'] = self.category_map[category]
+            
+            # Add difficulty if specified
+            if difficulty in ['easy', 'medium', 'hard']:
+                params['difficulty'] = difficulty
             
             async with self.session.get(self.base_url, params=params) as response:
                 if response.status == 200:
