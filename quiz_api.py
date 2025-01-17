@@ -27,12 +27,21 @@ class QuizAPI:
     def __init__(self):
         self.base_url = "https://opentdb.com/api.php"
         self.session = None
+        # Map our categories to Open Trivia DB category IDs
+        self.category_map = {
+            'general': 9,      # General Knowledge
+            'science': 17,     # Science & Nature
+            'history': 23,     # History
+            'geography': 22,   # Geography
+            'sports': 21,      # Sports
+            'entertainment': 11 # Entertainment: Film
+        }
 
     async def _ensure_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
 
-    async def get_question(self) -> Optional[Dict]:
+    async def get_question(self, category: str = 'general') -> Optional[Dict]:
         """Fetch a single quiz question from the Open Trivia Database."""
         try:
             await self._ensure_session()
@@ -40,6 +49,10 @@ class QuizAPI:
                 'amount': 1,
                 'type': 'multiple'
             }
+            
+            # Add category if specified
+            if category in self.category_map:
+                params['category'] = self.category_map[category]
             
             async with self.session.get(self.base_url, params=params) as response:
                 if response.status == 200:
