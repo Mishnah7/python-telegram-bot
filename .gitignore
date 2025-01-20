@@ -14,5 +14,6 @@ ENV/
 __pycache__/
 *.pyc
 
-# Database
+# Database (except quiz_bot.db)
 *.db
+!quiz_bot.db
