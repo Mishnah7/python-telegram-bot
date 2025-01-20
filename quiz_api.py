@@ -42,7 +42,24 @@ class QuizAPI:
             'history': 23,     # History
             'geography': 22,   # Geography
             'sports': 21,      # Sports
-            'entertainment': 11 # Entertainment: Film
+            'entertainment': 11, # Entertainment: Film
+            'books': 10,       # Books
+            'music': 12,       # Music
+            'television': 14,  # Television
+            'videogames': 15,  # Video Games
+            'boardgames': 16,  # Board Games
+            'computers': 18,   # Computers
+            'mathematics': 19, # Mathematics
+            'mythology': 20,   # Mythology
+            'politics': 24,    # Politics
+            'art': 25,        # Art
+            'celebrities': 26, # Celebrities
+            'animals': 27,     # Animals
+            'vehicles': 28,    # Vehicles
+            'comics': 29,      # Comics
+            'gadgets': 30,     # Gadgets
+            'anime': 31,       # Anime & Manga
+            'cartoons': 32     # Cartoon & Animations
         }
 
     async def _ensure_session(self):

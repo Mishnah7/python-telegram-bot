@@ -34,7 +34,24 @@ CATEGORIES = {
     'history': 'History',
     'geography': 'Geography',
     'sports': 'Sports',
-    'entertainment': 'Entertainment'
+    'entertainment': 'Entertainment: Film',
+    'books': 'Books',
+    'music': 'Music',
+    'television': 'Television',
+    'videogames': 'Video Games',
+    'boardgames': 'Board Games',
+    'computers': 'Computers',
+    'mathematics': 'Mathematics',
+    'mythology': 'Mythology',
+    'politics': 'Politics',
+    'art': 'Art',
+    'celebrities': 'Celebrities',
+    'animals': 'Animals',
+    'vehicles': 'Vehicles',
+    'comics': 'Comics',
+    'gadgets': 'Gadgets',
+    'anime': 'Anime & Manga',
+    'cartoons': 'Cartoons & Animation'
 }
 
 # Add difficulties constant
@@ -158,22 +175,77 @@ async def select_difficulty(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("Please select difficulty level:", reply_markup=reply_markup)
 
 async def select_category(update: Update, context: ContextTypes.DEFAULT_TYPE, edit_message=None) -> None:
-    # Create keyboard with categories
+    # Organize categories into logical groups
+    category_groups = [
+        # Entertainment Group
+        [
+            ('entertainment', 'Films'),
+            ('television', 'TV Shows'),
+            ('music', 'Music')
+        ],
+        [
+            ('anime', 'Anime'),
+            ('cartoons', 'Cartoons'),
+            ('comics', 'Comics')
+        ],
+        # Games Group
+        [
+            ('videogames', 'Video Games'),
+            ('boardgames', 'Board Games')
+        ],
+        # Knowledge Group
+        [
+            ('general', 'General'),
+            ('science', 'Science'),
+            ('computers', 'Computers')
+        ],
+        [
+            ('mathematics', 'Math'),
+            ('history', 'History'),
+            ('geography', 'Geography')
+        ],
+        # Culture Group
+        [
+            ('mythology', 'Mythology'),
+            ('art', 'Art'),
+            ('books', 'Books')
+        ],
+        # Misc Group
+        [
+            ('sports', 'Sports'),
+            ('politics', 'Politics'),
+            ('celebrities', 'Celebs')
+        ],
+        [
+            ('animals', 'Animals'),
+            ('vehicles', 'Vehicles'),
+            ('gadgets', 'Gadgets')
+        ]
+    ]
+    
     keyboard = []
-    row = []
-    for category_id, category_name in CATEGORIES.items():
-        if len(row) == 2:  # 2 buttons per row
-            keyboard.append(row)
-            row = []
-        row.append(InlineKeyboardButton(category_name, callback_data=f"category_{category_id}"))
-    if row:  # Add any remaining buttons
+    
+    # Create buttons for each category group
+    for group in category_groups:
+        row = []
+        for category_id, display_name in group:
+            row.append(InlineKeyboardButton(display_name, callback_data=f"category_{category_id}"))
         keyboard.append(row)
     
     reply_markup = InlineKeyboardMarkup(keyboard)
+    message_text = (
+        "📚 Choose a Quiz Category:\n\n"
+        "🎬 Entertainment: Films, TV, Music, Anime, Comics\n"
+        "🎮 Games: Video Games, Board Games\n"
+        "🧠 Knowledge: General, Science, Computers, Math\n"
+        "📖 History & Culture: History, Geography, Art\n"
+        "🌟 And More: Sports, Animals, Politics, etc."
+    )
+    
     if edit_message:
-        await edit_message.edit_text("Please select a category:", reply_markup=reply_markup)
+        await edit_message.edit_text(message_text, reply_markup=reply_markup)
     else:
-        await update.message.reply_text("Please select a category:", reply_markup=reply_markup)
+        await update.message.reply_text(message_text, reply_markup=reply_markup)
 
 def create_quiz_keyboard(options, show_controls=True):
     keyboard = []
